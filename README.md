@@ -12,10 +12,19 @@ Open two terminals from the workspace root and install each app's dependencies:
 ```powershell
 cd backend
 npm install
-Copy-Item .env.example .env
 ```
 
-Set unique values for `JWT_SECRET` and `ADMIN_SIGNUP_INVITE` in `backend/.env` before registering administrators. The admin invitation must be shared privately. The first three valid invited accounts can register; subsequent attempts are rejected by the API.
+Create `backend/.env` with these settings, replacing both secret placeholders with private values:
+
+```dotenv
+PORT=5000
+CLIENT_ORIGIN=http://localhost:5173,http://127.0.0.1:5173
+PUBLIC_API_URL=http://localhost:5000
+JWT_SECRET=replace-with-a-random-secret-at-least-32-characters-long
+ADMIN_SIGNUP_INVITE=replace-with-a-private-admin-invitation-code
+```
+
+Set a unique `JWT_SECRET` of at least 32 characters and a private `ADMIN_SIGNUP_INVITE` before registering administrators. The invitation must be shared privately. The first three invited accounts can register; subsequent attempts are rejected by the API. Never commit `.env` files.
 
 In the second terminal:
 
