@@ -1,0 +1,21 @@
+# Secrets and local environment overrides
+**/.env
+**/.env.*
+!**/.env.example
+
+# Installed dependencies and generated output
+**/node_modules/
+**/dist/
+**/coverage/
+
+# Local database and uploaded files
+backend/data/
+backend/uploads/
+backend/public/uploads/
+
+# Local editor and operating-system files
+.vscode/*
+!.vscode/extensions.json
+.idea/
+.DS_Store
+*.log
