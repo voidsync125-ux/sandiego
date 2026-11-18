@@ -7,6 +7,8 @@ const GOLD = '#D4Af37'
 const MIDNIGHT = '#05070b'
 const PARTICLE_COUNT = 6200
 const FORMATION_DURATION = 2.4
+const SCATTER_START = 5.2
+const SCATTER_DURATION = 1.05
 
 type Point = { x: number; y: number }
 
@@ -66,16 +68,27 @@ function seededRandom(seed: number) {
   return value - Math.floor(value)
 }
 
+const INTRO_STARS = Array.from({ length: 28 }, (_, index) => {
+  const seed = seededRandom(index + 401)
+  return {
+    x: 90 + seed * 820,
+    y: 145 + seededRandom(index + 701) * 295,
+    size: 1.4 + seededRandom(index + 1001) * 2.2,
+    delay: seededRandom(index + 1301) * 900,
+  }
+})
+
 function easeOutCubic(value: number) {
   return 1 - Math.pow(1 - value, 3)
 }
 
 function ParticleField() {
   const pointsRef = useRef<THREE.Points>(null)
-  const { targets, origins, seeds, delays } = useMemo(() => {
+  const { targets, origins, scatterTargets, seeds, delays } = useMemo(() => {
     const { headline, caption } = buildWordTargets()
     const targetData = new Float32Array(PARTICLE_COUNT * 3)
     const originData = new Float32Array(PARTICLE_COUNT * 3)
+    const scatterData = new Float32Array(PARTICLE_COUNT * 3)
     const seedData = new Float32Array(PARTICLE_COUNT)
     const delayData = new Float32Array(PARTICLE_COUNT)
     const headlineCount = Math.floor(PARTICLE_COUNT * 0.78)
@@ -93,6 +106,8 @@ function ParticleField() {
         side === 2 ? -edge * 0.6 : side === 3 ? edge * 0.6 : alongEdge * 0.55,
         (seededRandom(index * 13 + 59) - 0.5) * 5,
       ]
+      const scatterAngle = seededRandom(index * 29 + 101) * Math.PI * 2
+      const scatterRadius = 2.2 + seededRandom(index * 31 + 113) * 2.1
       const offset = index * 3
 
       targetData[offset] = target.x + (seed - 0.5) * 0.018
@@ -101,17 +116,21 @@ function ParticleField() {
       originData[offset] = origin[0]
       originData[offset + 1] = origin[1]
       originData[offset + 2] = origin[2]
+      scatterData[offset] = Math.cos(scatterAngle) * scatterRadius * 1.15
+      scatterData[offset + 1] = Math.sin(scatterAngle) * scatterRadius * 0.52
+      scatterData[offset + 2] = (seededRandom(index * 37 + 127) - 0.5) * 1.2
       seedData[index] = seed
       delayData[index] = seededRandom(index * 23 + 97) * 1.1
     }
 
-    return { targets: targetData, origins: originData, seeds: seedData, delays: delayData }
+    return { targets: targetData, origins: originData, scatterTargets: scatterData, seeds: seedData, delays: delayData }
   }, [])
 
   const positions = useMemo(() => new Float32Array(origins), [origins])
 
   useFrame(({ camera, clock, size }) => {
     const elapsed = clock.elapsedTime
+    const scatter = easeOutCubic(THREE.MathUtils.clamp((elapsed - SCATTER_START) / SCATTER_DURATION, 0, 1))
     const array = pointsRef.current?.geometry.attributes.position.array as Float32Array | undefined
     if (!array) return
 
@@ -125,10 +144,14 @@ function ParticleField() {
       const driftX = Math.sin(elapsed * 0.9 + seed * 18) * 0.018
       const driftY = Math.cos(elapsed * 1.1 + seed * 21) * 0.018
       const driftZ = Math.sin(elapsed * 0.8 + seed * 27) * 0.035
+      const twinkle = Math.sin(elapsed * 4.5 + seed * Math.PI * 2) * 0.035
 
-      array[offset] = THREE.MathUtils.lerp(origins[offset], targets[offset], eased) + Math.cos(angle) * swirl + driftX
-      array[offset + 1] = THREE.MathUtils.lerp(origins[offset + 1], targets[offset + 1], eased) + Math.sin(angle) * swirl + driftY
-      array[offset + 2] = THREE.MathUtils.lerp(origins[offset + 2], targets[offset + 2], eased) + driftZ
+      const formedX = THREE.MathUtils.lerp(origins[offset], targets[offset], eased) + Math.cos(angle) * swirl + driftX
+      const formedY = THREE.MathUtils.lerp(origins[offset + 1], targets[offset + 1], eased) + Math.sin(angle) * swirl + driftY
+      const formedZ = THREE.MathUtils.lerp(origins[offset + 2], targets[offset + 2], eased) + driftZ
+      array[offset] = THREE.MathUtils.lerp(formedX, scatterTargets[offset], scatter) + Math.cos(angle) * twinkle
+      array[offset + 1] = THREE.MathUtils.lerp(formedY, scatterTargets[offset + 1], scatter) + Math.sin(angle) * twinkle
+      array[offset + 2] = THREE.MathUtils.lerp(formedZ, scatterTargets[offset + 2], scatter)
     }
 
     if (pointsRef.current) {
@@ -137,6 +160,9 @@ function ParticleField() {
       pointsRef.current.rotation.x = THREE.MathUtils.lerp(0.12, 0.06, settle)
       pointsRef.current.rotation.y = THREE.MathUtils.lerp(elapsed * 0.35 + 0.8, 0.16, settle)
       pointsRef.current.rotation.z = 0
+      const material = pointsRef.current.material as THREE.PointsMaterial
+      material.size = THREE.MathUtils.lerp(0.022, 0.029, scatter)
+      material.opacity = THREE.MathUtils.lerp(0.92, 0.78, scatter)
     }
 
     const settle = THREE.MathUtils.smoothstep(elapsed, 3.8, 5.2)
@@ -180,15 +206,18 @@ type LoadingScreenProps = {
 export function LoadingScreen({ onComplete }: LoadingScreenProps) {
   const onCompleteRef = useRef(onComplete)
   const [outlineVisible, setOutlineVisible] = useState(false)
+  const [starFieldVisible, setStarFieldVisible] = useState(false)
 
   useEffect(() => {
     onCompleteRef.current = onComplete
   }, [onComplete])
 
   useEffect(() => {
-    const outlineTimer = window.setTimeout(() => setOutlineVisible(true), 5200)
-    const finishTimer = window.setTimeout(() => onCompleteRef.current?.(), 7700)
+    const starTimer = window.setTimeout(() => setStarFieldVisible(true), SCATTER_START * 1000)
+    const outlineTimer = window.setTimeout(() => setOutlineVisible(true), 6300)
+    const finishTimer = window.setTimeout(() => onCompleteRef.current?.(), 8800)
     return () => {
+      window.clearTimeout(starTimer)
       window.clearTimeout(outlineTimer)
       window.clearTimeout(finishTimer)
     }
@@ -218,6 +247,29 @@ export function LoadingScreen({ onComplete }: LoadingScreenProps) {
         <pointLight position={[0, 1.4, 3.8]} intensity={0.65} color={GOLD} distance={6} />
         <ParticleField />
       </Canvas>
+      <svg
+        viewBox="0 0 1000 600"
+        preserveAspectRatio="xMidYMid meet"
+        aria-hidden="true"
+        className={`pointer-events-none absolute inset-0 h-full w-full transition-opacity duration-1000 ${starFieldVisible ? 'opacity-100' : 'opacity-0'}`}
+      >
+        <defs>
+          <filter id="intro-star-glow" x="-200%" y="-200%" width="500%" height="500%">
+            <feGaussianBlur stdDeviation="2.2" result="blur" />
+            <feMerge><feMergeNode in="blur" /><feMergeNode in="SourceGraphic" /></feMerge>
+          </filter>
+        </defs>
+        {INTRO_STARS.map(({ x, y, size, delay }, index) => (
+          <g key={index} className="intro-star" style={{ animationDelay: `${delay}ms` }}>
+            <path
+              d={`M ${x} ${y - size * 2.2} Q ${x + size * 0.3} ${y - size * 0.3} ${x + size * 2.2} ${y} Q ${x + size * 0.3} ${y + size * 0.3} ${x} ${y + size * 2.2} Q ${x - size * 0.3} ${y + size * 0.3} ${x - size * 2.2} ${y} Q ${x - size * 0.3} ${y - size * 0.3} ${x} ${y - size * 2.2} Z`}
+              fill="#E5C75E"
+              filter="url(#intro-star-glow)"
+              opacity={0.45 + seededRandom(index + 1701) * 0.5}
+            />
+          </g>
+        ))}
+      </svg>
       <svg
         viewBox="0 0 1000 600"
         preserveAspectRatio="xMidYMid meet"

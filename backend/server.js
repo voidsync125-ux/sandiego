@@ -48,7 +48,7 @@ app.use(cors({
     if (!origin || allowedOrigins.includes(origin) || isLocalViteOrigin(origin)) return callback(null, true)
     return callback(new Error('Origin is not allowed by CORS.'))
   },
-  methods: ['GET', 'POST', 'PATCH', 'OPTIONS'],
+  methods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
 }))
 app.use(express.json({ limit: '1mb' }))
