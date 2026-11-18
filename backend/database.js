@@ -4,7 +4,6 @@ const { MongoClient, GridFSBucket } = require('mongodb')
 
 const dataDirectory = path.join(__dirname, 'data')
 const databasePath = process.env.STORE_PATH || path.join(dataDirectory, 'store.json')
-const databaseName = process.env.MONGODB_DATABASE
 const storeCollections = ['users', 'admins', 'products', 'orders']
 let mongoClient
 let mongoDatabasePromise
@@ -16,12 +15,25 @@ function isMongoConfigured() {
   return Boolean(process.env.DATABASE_URL)
 }
 
+function getMongoDatabaseName() {
+  const configuredName = process.env.MONGODB_DATABASE?.trim()
+  if (configuredName) return configuredName
+
+  const match = process.env.DATABASE_URL?.match(/^mongodb(?:\+srv)?:\/\/[^/]+\/([^?]*)/)
+  const uriName = match?.[1] ? decodeURIComponent(match[1]) : ''
+  if (!uriName) {
+    throw new Error('Set MONGODB_DATABASE to the name of your existing database when DATABASE_URL does not include one.')
+  }
+  return uriName
+}
+
 function getMongoDatabase() {
   if (!isMongoConfigured()) throw new Error('DATABASE_URL is required to use MongoDB.')
   if (!mongoDatabasePromise) {
+    const selectedDatabaseName = getMongoDatabaseName()
     mongoClient = new MongoClient(process.env.DATABASE_URL, { serverSelectionTimeoutMS: 10000 })
     mongoDatabasePromise = mongoClient.connect().then(async (client) => {
-      const database = client.db(databaseName)
+      const database = client.db(selectedDatabaseName)
       const topology = await database.admin().command({ hello: 1 })
       if (!topology.setName && topology.msg !== 'isdbgrid') {
         throw new Error('MongoDB transactions require a replica set or sharded cluster. Use MongoDB Atlas or another replica-set deployment.')

@@ -26,7 +26,7 @@ ADMIN_SIGNUP_INVITE=replace-with-a-private-admin-invitation-code
 
 Set a unique `JWT_SECRET` of at least 32 characters and a private `ADMIN_SIGNUP_INVITE` before registering administrators. The invitation must be shared privately. The first three invited accounts can register; subsequent attempts are rejected by the API. Never commit `.env` files.
 
-For local development without MongoDB, the backend uses `backend/data/store.json` and stores product photos in `backend/public/uploads/products`. To use MongoDB locally, add `DATABASE_URL` to `backend/.env`; this switches all account, inventory, and order data to MongoDB.
+For local development without MongoDB, the backend uses `backend/data/store.json` and stores product photos in `backend/public/uploads/products`. To use MongoDB locally, add `DATABASE_URL` to `backend/.env`; this switches all account, inventory, and order data to MongoDB. If the URI does not specify a database name, also set `MONGODB_DATABASE` to the name of your existing database.
 
 In the second terminal:
 
@@ -67,16 +67,16 @@ Open the Vite URL printed in the frontend terminal. The API listens on `http://l
 For Render, set the backend root directory to `backend`, the build command to `npm ci`, and the start command to `npm start`. Configure these environment variables in Render (not in GitHub):
 
 - `DATABASE_URL`: the private MongoDB connection string. The database must support transactions (MongoDB Atlas/replica set or a sharded cluster).
-- `MONGODB_DATABASE`: optional database name; omit it when the URI already selects a database.
+- `MONGODB_DATABASE`: set this to the existing database name if the connection string does not include it (for example, when it ends in `/`).
 - `JWT_SECRET`: a private random secret of at least 32 characters.
 - `ADMIN_SIGNUP_INVITE`: a private invitation used to register the first three administrators.
 - `CLIENT_ORIGIN`: the exact deployed Vercel origin, such as `https://your-store.vercel.app`.
 - `PUBLIC_API_URL`: the public HTTPS URL of the Render API service.
 - `NODE_ENV=production`.
 
-The backend stores accounts, products, and orders in separate MongoDB collections and uses transactions to serialize and atomically persist changes. Product images are stored in MongoDB GridFS, so neither the database nor uploaded images depend on Render's ephemeral local filesystem. The first startup creates the required collections and indexes; it does not overwrite existing records. No `STORE_PATH` is needed when `DATABASE_URL` is set.
+The backend stores accounts, products, and orders in separate MongoDB collections and uses transactions to serialize and atomically persist changes. Product images are stored in MongoDB GridFS, so neither the database nor uploaded images depend on Render's ephemeral local filesystem. The first startup creates the required collections and indexes; it does not overwrite existing records. No `STORE_PATH` is needed when `DATABASE_URL` is set. Ensure your MongoDB network access rules allow connections from Render.
 
-For Vercel, set the frontend root directory to `frontend`, build command to `npm run build`, output directory to `dist`, and set `VITE_API_BASE_URL` to `https://your-render-service.onrender.com/api`. Add a Vercel rewrite so browser routes serve `index.html` when opened directly or refreshed.
+For Vercel, set the frontend root directory to `frontend`, build command to `npm run build`, output directory to `dist`, and set `VITE_API_BASE_URL` to `https://your-render-service.onrender.com/api`. The checked-in `frontend/vercel.json` rewrites browser routes to `index.html`, so direct links and page refreshes work.
 
 The JSON file and local image directory are only used when `DATABASE_URL` is not set (for local development). Production startup refuses to run without `DATABASE_URL`. Administrator passwords are bcrypt-hashed, signup requires a private invite code, signup attempts are rate-limited, and the API caps admin accounts at three.
 
