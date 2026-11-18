@@ -8,9 +8,10 @@ const path = require('node:path')
 const testDirectory = path.join(os.tmpdir(), `sandiego-orders-test-${crypto.randomUUID()}`)
 process.env.STORE_PATH = path.join(testDirectory, 'store.json')
 
-const { createProduct, listProducts } = require('../controllers/productController')
+const { createProduct, deleteProduct, listProducts } = require('../controllers/productController')
 const { createOrder, trackOrder, updateOrderStatus } = require('../controllers/orderController')
 const { readStore } = require('../database')
+const { productsDirectory } = require('../middleware/uploadProductImage')
 
 function responseCapture() {
   return {
@@ -90,4 +91,42 @@ test('only uploaded inventory is listed and checkout orders use persisted produc
 
   const store = await readStore()
   assert.equal(store.orders[0].status, 'Dispatched')
+})
+
+test('admin product removal takes inventory offline, removes its images, and preserves existing order details', async () => {
+  const filename = `${crypto.randomUUID()}.jpg`
+  const imagePath = path.join(productsDirectory, filename)
+  await fs.mkdir(productsDirectory, { recursive: true })
+  await fs.writeFile(imagePath, 'test image')
+
+  const createResponse = responseCapture()
+  await createProduct({
+    body: { name: 'Removable product', category: 'Clothes', price: '12000', description: 'A test item', benefits: '' },
+    files: [{ publicPath: `/uploads/products/${filename}` }],
+  }, createResponse, (error) => { throw error })
+
+  const orderResponse = responseCapture()
+  await createOrder({
+    customer: { id: 'customer-removal-test' },
+    body: {
+      items: [{ product: { id: createResponse.payload.product.id }, quantity: 1 }],
+      delivery: { fullName: 'Test Customer', phone: '08000000000', city: 'Lagos', address: 'Test address' },
+    },
+  }, orderResponse, (error) => { throw error })
+  assert.equal(orderResponse.statusCode, 201)
+
+  const deleteResponse = responseCapture()
+  await deleteProduct({ params: { productId: createResponse.payload.product.id } }, deleteResponse, (error) => { throw error })
+  assert.equal(deleteResponse.statusCode, 200)
+
+  const inventoryResponse = responseCapture()
+  await listProducts({}, inventoryResponse, (error) => { throw error })
+  assert.equal(inventoryResponse.payload.products.some((product) => product.id === createResponse.payload.product.id), false)
+  const store = await readStore()
+  assert.equal(store.orders[0].items[0].product.name, 'Removable product')
+  await assert.rejects(fs.access(imagePath), { code: 'ENOENT' })
+
+  const missingResponse = responseCapture()
+  await deleteProduct({ params: { productId: createResponse.payload.product.id } }, missingResponse, (error) => { throw error })
+  assert.equal(missingResponse.statusCode, 404)
 })

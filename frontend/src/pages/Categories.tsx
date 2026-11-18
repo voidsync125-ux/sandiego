@@ -28,7 +28,14 @@ export default function Categories() {
     const refresh = () => apiRequest<{ products: Product[] }>('/products').then(({ products }) => { if (active) { setRemoteProducts(products); setLoadError('') } }).catch((error: Error) => { if (active) setLoadError(error.message) })
     refresh()
     const timer = window.setInterval(refresh, 15000)
-    return () => { active = false; window.clearInterval(timer) }
+    const channel = typeof BroadcastChannel !== 'undefined' ? new BroadcastChannel('sandiego-products') : null
+    channel?.addEventListener('message', refresh)
+    return () => {
+      active = false
+      window.clearInterval(timer)
+      channel?.removeEventListener('message', refresh)
+      channel?.close()
+    }
   }, [])
 
   return (

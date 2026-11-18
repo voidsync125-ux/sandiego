@@ -9,7 +9,7 @@ const multer = require('multer')
 const rateLimit = require('express-rate-limit')
 const { readStore, isMongoConfigured, closeDatabase } = require('./database')
 const { getAdminCount, signupAdmin, signupCustomer, loginCustomer, loginAdmin, changeCustomerPassword } = require('./controllers/authController')
-const { createProduct, listProducts, validateProduct } = require('./controllers/productController')
+const { createProduct, deleteProduct, listProducts, validateProduct } = require('./controllers/productController')
 const { createOrder, listOrders, listCustomerOrders, trackOrder, updateOrderStatus } = require('./controllers/orderController')
 const { requireAdmin } = require('./middleware/requireAdmin')
 const { requireCustomer } = require('./middleware/requireCustomer')
@@ -71,6 +71,7 @@ app.get('/api/auth/admin/me', requireAdmin, (request, response) => response.json
 
 app.get('/api/products', listProducts)
 app.post('/api/products', requireAdmin, uploadProductImage, validateProduct, saveProductImage, createProduct)
+app.delete('/api/products/:productId', requireAdmin, deleteProduct)
 
 app.post('/api/orders', orderLimiter, requireCustomer, createOrder)
 app.get('/api/orders/mine', requireCustomer, listCustomerOrders)

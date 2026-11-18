@@ -25,7 +25,7 @@ export default function ProductDetails() {
   const [variant, setVariant] = useState('')
   useEffect(() => {
     let mounted = true
-    apiRequest<{ products: Product[] }>('/products')
+    const refresh = () => apiRequest<{ products: Product[] }>('/products')
       .then(({ products }) => {
         if (mounted) {
           setBackendProduct(products.find((item) => item.id === productId) ?? null)
@@ -33,7 +33,16 @@ export default function ProductDetails() {
         }
       })
       .catch((error: Error) => { if (mounted) setRequestState({ productId: productId || '', error: error.message }) })
-    return () => { mounted = false }
+    refresh()
+    const interval = window.setInterval(refresh, 5000)
+    const channel = typeof BroadcastChannel !== 'undefined' ? new BroadcastChannel('sandiego-products') : null
+    channel?.addEventListener('message', refresh)
+    return () => {
+      mounted = false
+      window.clearInterval(interval)
+      channel?.removeEventListener('message', refresh)
+      channel?.close()
+    }
   }, [productId])
 
   const currentRequest = requestState.productId === (productId || '')

@@ -1,5 +1,6 @@
 const crypto = require('node:crypto')
 const { readStore, updateStore } = require('../database')
+const { deleteProductImages } = require('../middleware/uploadProductImage')
 
 const categories = new Set(['Clothes', 'Jewelries', 'Organic Soap', 'Cream'])
 const apiOrigin = process.env.PUBLIC_API_URL || `http://localhost:${process.env.PORT || 5000}`
@@ -55,4 +56,28 @@ async function createProduct(request, response, next) {
   }
 }
 
-module.exports = { listProducts, validateProduct, createProduct }
+async function deleteProduct(request, response, next) {
+  try {
+    const removedProduct = await updateStore((store) => {
+      const productIndex = store.products.findIndex((product) => product.id === request.params.productId)
+      if (productIndex === -1) return null
+      return store.products.splice(productIndex, 1)[0]
+    })
+    if (!removedProduct) return response.status(404).json({ error: 'Product was not found.' })
+
+    try {
+      const store = await readStore()
+      const referencedImages = store.products.flatMap((product) => product.images || [product.image])
+      await deleteProductImages(removedProduct.images || [removedProduct.image], referencedImages)
+    } catch (error) {
+      console.error(`Product ${removedProduct.id} was removed, but image cleanup failed.`, error)
+      return response.status(500).json({ error: 'Product was removed from the storefront, but some stored images could not be deleted.' })
+    }
+
+    response.json({ product: removedProduct })
+  } catch (error) {
+    next(error)
+  }
+}
+
+module.exports = { listProducts, validateProduct, createProduct, deleteProduct }

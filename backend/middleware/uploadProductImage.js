@@ -95,4 +95,38 @@ async function saveProductImage(request, response, next) {
   }
 }
 
-module.exports = { productsDirectory, uploadProductImage, saveProductImage }
+function getStoredImageFilename(imageUrl) {
+  try {
+    const pathname = new URL(imageUrl, 'http://localhost').pathname
+    const filename = decodeURIComponent(pathname.slice(pathname.lastIndexOf('/') + 1))
+    return /^([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.(jpg|png|webp|avif)$/i.test(filename)
+      ? filename
+      : null
+  } catch {
+    return null
+  }
+}
+
+async function deleteProductImages(imageUrls, referencedImageUrls) {
+  const referencedFilenames = new Set(referencedImageUrls.map(getStoredImageFilename).filter(Boolean))
+  const filenamesToDelete = [...new Set(imageUrls.map(getStoredImageFilename).filter(Boolean))]
+    .filter((filename) => !referencedFilenames.has(filename))
+  if (!filenamesToDelete.length) return
+
+  if (isMongoConfigured()) {
+    const bucket = await getImageBucket()
+    const files = await bucket.find({ filename: { $in: filenamesToDelete } }).toArray()
+    for (const file of files) await bucket.delete(file._id)
+    return
+  }
+
+  for (const filename of filenamesToDelete) {
+    try {
+      await fs.unlink(path.join(productsDirectory, filename))
+    } catch (error) {
+      if (error.code !== 'ENOENT') throw error
+    }
+  }
+}
+
+module.exports = { productsDirectory, uploadProductImage, saveProductImage, deleteProductImages }

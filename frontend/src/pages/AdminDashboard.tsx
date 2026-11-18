@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
-import { ArrowRight, ImagePlus, LogOut, PackagePlus, RefreshCw, ShieldCheck, Truck } from 'lucide-react'
+import { ArrowRight, ImagePlus, LogOut, PackagePlus, RefreshCw, ShieldCheck, Trash2, Truck } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { adminHeaders, apiRequest, ApiError } from '../lib/api'
 import { useAuth } from '../context/useAuth'
@@ -26,6 +26,7 @@ export default function AdminDashboard() {
   const [admin, setAdmin] = useState<AdminProfile | null>(null)
   const [authorized, setAuthorized] = useState(false)
   const [orders, setOrders] = useState<OrderRow[]>([])
+  const [products, setProducts] = useState<Product[]>([])
   const [pageError, setPageError] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [success, setSuccess] = useState('')
@@ -33,6 +34,7 @@ export default function AdminDashboard() {
   const imageInput = useRef<HTMLInputElement>(null)
   const imagePreviewUrls = useRef<string[]>([])
   const [updatingOrderIds, setUpdatingOrderIds] = useState<Set<string>>(() => new Set())
+  const [deletingProductIds, setDeletingProductIds] = useState<Set<string>>(() => new Set())
   const [form, setForm] = useState(emptyProductForm)
 
   const releaseImagePreviews = () => {
@@ -56,13 +58,15 @@ export default function AdminDashboard() {
     let mounted = true
     const loadDashboard = async () => {
       try {
-        const [profile, result] = await Promise.all([
+        const [profile, result, inventory] = await Promise.all([
           apiRequest<{ admin: AdminProfile }>('/auth/admin/me', { headers }),
           apiRequest<{ orders: OrderRow[] }>('/admin/orders', { headers }),
+          apiRequest<{ products: Product[] }>('/products'),
         ])
         if (!mounted) return
         setAdmin(profile.admin)
         setOrders(result.orders)
+        setProducts(inventory.products)
         setPageError('')
         setAuthorized(true)
       } catch (error) {
@@ -76,8 +80,15 @@ export default function AdminDashboard() {
     }
     void loadDashboard()
     const interval = window.setInterval(() => {
-      apiRequest<{ orders: OrderRow[] }>('/admin/orders', { headers }).then((result) => {
-        if (mounted) { setOrders(result.orders); setPageError('') }
+      Promise.all([
+        apiRequest<{ orders: OrderRow[] }>('/admin/orders', { headers }),
+        apiRequest<{ products: Product[] }>('/products'),
+      ]).then(([result, inventory]) => {
+        if (mounted) {
+          setOrders(result.orders)
+          setProducts(inventory.products)
+          setPageError('')
+        }
       }).catch((error: Error) => { if (mounted) setPageError(error.message) })
     }, 5000)
     return () => {
@@ -167,6 +178,39 @@ export default function AdminDashboard() {
     }
   }
 
+  const removeProduct = async (product: Product) => {
+    if (!window.confirm(`Remove "${product.name}" from the storefront? Existing orders will keep their saved item details.`)) return
+
+    setDeletingProductIds((current) => new Set(current).add(product.id))
+    setPageError('')
+    setSuccess('')
+    try {
+      await apiRequest<{ product: Product }>(`/products/${encodeURIComponent(product.id)}`, {
+        method: 'DELETE',
+        headers: adminHeaders(),
+      })
+      setProducts((current) => current.filter((entry) => entry.id !== product.id))
+      setSuccess(`${product.name} was removed from the storefront.`)
+      if (typeof BroadcastChannel !== 'undefined') {
+        const productChannel = new BroadcastChannel('sandiego-products')
+        productChannel.postMessage({ type: 'product-deleted', productId: product.id })
+        productChannel.close()
+      }
+    } catch (error) {
+      setPageError(error instanceof Error ? error.message : 'Product could not be removed.')
+      if (error instanceof ApiError && error.status === 401) {
+        sessionStorage.removeItem('sandiego-admin-token')
+        navigate('/admin/signup', { replace: true })
+      }
+    } finally {
+      setDeletingProductIds((current) => {
+        const next = new Set(current)
+        next.delete(product.id)
+        return next
+      })
+    }
+  }
+
   const signOut = () => {
     clearAuth()
     navigate('/admin/signup', { replace: true })
@@ -181,7 +225,7 @@ export default function AdminDashboard() {
       <div className="mx-auto max-w-[1450px]">
         <header className="flex flex-wrap items-end justify-between gap-4 border-b border-[var(--line)] pb-5">
           <div><p className="flex items-center gap-2 text-[9px] font-semibold uppercase tracking-[0.2em] text-[#A88417]"><ShieldCheck size={14} /> Private control room</p><h1 className="mt-2 font-serif text-[31px] sm:text-[38px]">Good to see you{admin ? `, ${admin.fullName.split(' ')[0]}` : ''}.</h1><p className="mt-1 text-[11px] text-[var(--muted)]">Manage incoming orders and the customer storefront.</p></div>
-          <div className="flex items-center gap-3"><button type="button" onClick={() => apiRequest<{ orders: OrderRow[] }>('/admin/orders', { headers: adminHeaders() }).then((result) => setOrders(result.orders)).catch((error: Error) => setPageError(error.message))} className="flex h-9 items-center gap-2 border border-[var(--line)] px-3 text-[9px] uppercase tracking-[0.12em] hover:border-[#D4AF37]"><RefreshCw size={13} /> Refresh</button><button type="button" onClick={signOut} className="flex h-9 items-center gap-2 border border-[var(--line)] px-3 text-[9px] uppercase tracking-[0.12em] text-[var(--muted)] hover:border-[#D4AF37] hover:text-[var(--ink)]"><LogOut size={13} /> Sign out</button></div>
+          <div className="flex items-center gap-3"><button type="button" onClick={() => Promise.all([apiRequest<{ orders: OrderRow[] }>('/admin/orders', { headers: adminHeaders() }), apiRequest<{ products: Product[] }>('/products')]).then(([result, inventory]) => { setOrders(result.orders); setProducts(inventory.products); setPageError('') }).catch((error: Error) => setPageError(error.message))} className="flex h-9 items-center gap-2 border border-[var(--line)] px-3 text-[9px] uppercase tracking-[0.12em] hover:border-[#D4AF37]"><RefreshCw size={13} /> Refresh</button><button type="button" onClick={signOut} className="flex h-9 items-center gap-2 border border-[var(--line)] px-3 text-[9px] uppercase tracking-[0.12em] text-[var(--muted)] hover:border-[#D4AF37] hover:text-[var(--ink)]"><LogOut size={13} /> Sign out</button></div>
         </header>
 
         {pageError && <p role="alert" className="mt-5 border-l-2 border-red-500 bg-red-50 px-4 py-3 text-[11px] text-red-700">{pageError}</p>}
@@ -206,6 +250,25 @@ export default function AdminDashboard() {
               <button type="submit" disabled={submitting} className="flex h-11 w-full items-center justify-center gap-2 bg-[#D4AF37] text-[9px] font-semibold uppercase tracking-[0.13em] text-[#17150E] hover:bg-[#E5C75E] disabled:opacity-60"><PackagePlus size={15} />{submitting ? 'Publishing…' : 'Publish product'}<ArrowRight size={14} /></button>
               <p className="text-[9px] leading-4 text-[var(--muted)]">Published products are saved to the local backend and appear on the storefront feed shortly.</p>
             </form>
+            <div className="border-t border-[var(--line)]">
+              <div className="flex items-center justify-between border-b border-[var(--line)] px-5 py-4 sm:px-6"><div><p className="text-[9px] uppercase tracking-[0.18em] text-[#A88417]">Published items</p><h3 className="mt-1 font-serif text-[19px]">Manage products</h3></div><span className="border border-[var(--line)] px-2.5 py-1 text-[10px]">{products.length}</span></div>
+              {products.length ? (
+                <ul className="divide-y divide-[var(--line)]">
+                  {products.map((product) => (
+                    <li key={product.id} className="flex items-center gap-3 px-5 py-3 sm:px-6">
+                      <img src={product.images?.[0] || product.image} alt="" className="size-12 shrink-0 border border-[var(--line)] object-cover" />
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-[11px] font-medium">{product.name}</p>
+                        <p className="mt-1 text-[9px] text-[var(--muted)]">{product.category} · {formatPrice(product.price)}</p>
+                      </div>
+                      <button type="button" aria-label={`Remove ${product.name}`} onClick={() => void removeProduct(product)} disabled={deletingProductIds.has(product.id)} className="flex h-9 shrink-0 items-center gap-2 border border-[var(--line)] px-2.5 text-[9px] uppercase tracking-[0.08em] text-[var(--muted)] transition hover:border-red-700 hover:text-red-700 disabled:opacity-50 sm:px-3">
+                        <Trash2 size={13} />{deletingProductIds.has(product.id) ? 'Removing…' : 'Remove'}
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              ) : <p className="px-6 py-8 text-center text-[10px] text-[var(--muted)]">No published products to manage.</p>}
+            </div>
           </section>
         </div>
       </div>
